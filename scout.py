@@ -1,3 +1,5 @@
+import os
+import streamlit as st
 import json
 import sys
 from datetime import datetime, timezone
@@ -13,7 +15,12 @@ from openai import OpenAI
 
 # Load API key from .env
 load_dotenv()
-client = OpenAI()
+api_key = os.getenv("OPENAI_API_KEY")
+
+if not api_key:
+    api_key = st.secrets.get("OPENAI_API_KEY")
+
+client = OpenAI(api_key=api_key)
 
 # Project directories
 BASE_DIR = Path(__file__).resolve().parent
