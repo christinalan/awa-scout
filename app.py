@@ -1,5 +1,8 @@
 
+import hashlib
 import json
+from datetime import datetime
+from html import escape
 import streamlit as st
 
 from database import ( 
@@ -10,6 +13,11 @@ from database import (
     )
 
 from scout import run_scout
+from audience import display_audience_blocks
+from engagement import display_engagement_dashboard
+from figures import display_key_figure_cards
+from communities import display_relevant_communities
+from momentum import display_cultural_momentum
 
 
 # --------------------------------------------------
@@ -17,12 +25,101 @@ from scout import run_scout
 # --------------------------------------------------
 
 st.set_page_config(
-    page_title="AWA Greenlight",
+    page_title="AWA Scout",
     page_icon="🔎",
     layout="wide"
 )
 
-st.title("AWA / Greenlight")
+st.html("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+[data-testid="stMainBlockContainer"] {
+    padding-top: 3rem;
+}
+[class*="st-key-finding_reader"] {
+    --scout-accent: #b65a38;
+}
+[class*="st-key-finding_reader"] h3 {
+    font-family: "Inter", sans-serif;
+    letter-spacing: -0.025em;
+}
+[class*="st-key-finding_reader"] h3.scout-section-heading {
+    font-family: "Source Sans 3", "Source Sans Pro", sans-serif;
+    font-size: .85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: #6b7280;
+    background: rgba(107, 114, 128, .09);
+    border-radius: 5px;
+    padding: .65rem .85rem;
+    margin: .75rem 0 .6rem;
+    line-height: 1.4;
+}
+[class*="st-key-finding_reader"] h3.scout-section-heading.findings-heading {
+    color: #b65a38;
+    background: rgba(182, 90, 56, .12);
+}
+[class*="st-key-finding_reader"] [data-testid="stButton"] button {
+    text-align: left;
+    justify-content: flex-start;
+    min-height: 3.5rem;
+    border-radius: 6px;
+    padding: 0.8rem 1rem;
+}
+[class*="st-key-finding_reader"] [data-testid="stButton"] button[kind="primary"] {
+    background: #b65a38;
+    border-color: #b65a38;
+    color: white;
+}
+/* Scope to a keyed container: button keys are not CSS classes in all versions. */
+[class*="st-key-findings_home_"] [data-testid="stVerticalBlock"] {
+    gap: 0.3rem;
+}
+[class*="st-key-findings_home_"] [data-testid="stButton"] button {
+    justify-content: flex-start !important;
+    text-align: left !important;
+    min-height: 0;
+    padding: 0.35rem 0.65rem;
+    border: 1px solid rgba(182, 90, 56, 0.22);
+    background: rgba(182, 90, 56, 0.035);
+    box-shadow: none;
+    transition: background-color 150ms ease, border-color 150ms ease;
+}
+[class*="st-key-findings_home_"] [data-testid="stButton"] button > div {
+    flex: 1;
+    justify-content: flex-start !important;
+    text-align: left !important;
+}
+[class*="st-key-findings_home_"] [data-testid="stButton"] button p {
+    font-size: 1.2rem;
+    font-weight: 600;
+    text-align: left !important;
+}
+[class*="st-key-findings_home_"] [data-testid="stButton"] button:hover {
+    color: #b65a38;
+    background: rgba(182, 90, 56, 0.09);
+    border-color: rgba(182, 90, 56, 0.45);
+}
+[class*="st-key-findings_home_"] [data-testid="stMarkdown"] p {
+    margin-bottom: 0.35rem;
+}
+[class*="st-key-finding_reader"] [data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 10px;
+}
+@media (max-width: 760px) {
+    [class*="st-key-finding_reader"] [data-testid="stHorizontalBlock"] {
+        flex-direction: column;
+    }
+    [class*="st-key-finding_reader"] [data-testid="stColumn"] {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+    }
+}
+</style>
+""")
+
+st.title("AWA Scout")
 st.caption("Cultural intelligence and audience discovery")
 
 
@@ -38,6 +135,12 @@ create_report_table()
 # --------------------------------------------------
 # DISPLAY HELPERS
 # --------------------------------------------------
+
+def display_section_heading(title, findings=False):
+    """Render a consistent divider-style report heading."""
+    extra_class = " findings-heading" if findings else ""
+    st.html(f'<h3 class="scout-section-heading{extra_class}">{escape(str(title))}</h3>')
+
 
 def display_value(value):
     """Display text, lists, or structured values."""
@@ -66,8 +169,6 @@ def display_sources(sources):
     if not sources:
         return
 
-    st.markdown("**Sources**")
-
     for source in sources:
         if not isinstance(source, dict):
             continue
@@ -83,127 +184,149 @@ def display_sources(sources):
                 st.caption(relevance)
 
 def display_key_figures(figures):
-    """Display notable people connected to a finding."""
+    """Display each figure as a separate card."""
+    display_key_figure_cards(figures)
 
-    if not figures:
-        return
-
-    st.markdown("**Key figures**")
-
-    for figure in figures:
-        if not isinstance(figure, dict):
-            continue
-
-        st.markdown(
-            f"**{figure.get('name', 'Unknown')}**"
-        )
-
-        if figure.get("field"):
-            st.caption(figure["field"])
-
-        display_value(figure.get("connection"))
-        display_value(figure.get("significance"))
-
-        for url in figure.get("source_urls", []):
-            if isinstance(url, str) and url.startswith(
-                ("https://", "http://")
-            ):
-                st.markdown(f"[Supporting source]({url})")
-
-def display_finding(finding):
-    """Display an individual research finding."""
+def display_finding(finding, page_key):
+    """Show a finding page with a menu of its research topics."""
 
     st.subheader(finding.get("name", "Unnamed finding"))
-
-    category = finding.get("category", "Uncategorized")
-    evidence = finding.get(
-        "evidence_strength", "Not assessed"
-    )
-
-    st.caption(
-        f"{category} | Evidence: {evidence}"
-    )
-
     st.write(finding.get("description", ""))
+    evidence = finding.get("evidence_strength") or "Not assessed"
+    evidence_colors = {
+        "strong": ("#166534", "#dcfce7"),
+        "moderate": ("#854d0e", "#fef9c3"),
+        "weak": ("#991b1b", "#fee2e2"),
+    }
+    evidence_label = str(evidence).strip().capitalize()
+    color, background = evidence_colors.get(
+        evidence_label.casefold(), ("#4b5563", "#f3f4f6")
+    )
+    st.html(
+        f'<div style="display:inline-flex;align-items:center;gap:.5rem;'
+        f'padding:.45rem .8rem;border-radius:8px;border-left:4px solid {color};'
+        f'background:{background};color:{color};font-size:.95rem">'
+        f'<span style="font-weight:400">Evidence strength:</span> '
+        f'<strong>{escape(evidence_label)}</strong></div>'
+    )
 
-    # Momentum is particularly important for Greenlight.
-    momentum = finding.get("momentum", {})
+    sections = [
+        ("History & context", "history"),
+        ("Audience", "audience"),
+        ("Engagement", "engagement"),
+        ("Cultural momentum", "momentum"),
+        ("Key figures", "key_figures"),
+        ("Cultural significance", "cultural_significance"),
+        ("Commercial signals", "commercial_signals"),
+        ("Commercial potential", "commercial_potential"),
+        ("Relevant communities", "related_communities"),
+        ("Narrative themes", "narrative_themes"),
+        ("Unverified claims", "unverified_claims"),
+        ("Sources", "sources"),
+    ]
+    chapter_key = f"{page_key}_topic"
+    if chapter_key not in st.session_state:
+        st.session_state[chapter_key] = "history"
 
-    if isinstance(momentum, dict):
-        status = momentum.get("status", "Unverified")
-
-        st.markdown(f"**Cultural momentum: {status.title()}**")
-
-        display_value(momentum.get("assessment"))
-
-        if momentum.get("historical_comparison"):
-            st.caption(
-                momentum["historical_comparison"]
+    menu, reader = st.columns([1, 2.4], gap="large")
+    with menu:
+        st.caption("RESEARCH CHAPTERS")
+        for index, (heading, field) in enumerate(sections, start=1):
+            st.button(
+                f"{index:02d} · {heading}",
+                key=f"{page_key}_topic_{field}",
+                type="primary" if st.session_state[chapter_key] == field else "secondary",
+                use_container_width=True,
+                on_click=select_chapter,
+                args=(chapter_key, field),
             )
 
-    with st.expander("Explore full research"):
-
-        sections = [
-            ("History", "history"),
-            ("Audience", "audience"),
-            ("Engagement", "engagement"),
-            ("Cultural significance", "cultural_significance"),
-            ("Commercial signals", "commercial_signals"),
-            ("Commercial potential", "commercial_potential"),
-            ("Related communities", "related_communities"),
-            ("Narrative themes", "narrative_themes"),
-            ("Unverified claims", "unverified_claims")
-        ]
-
-        for heading, key in sections:
-            value = finding.get(key)
-
-            if value:
-                st.markdown(f"**{heading}**")
+    with reader:
+        with st.container(border=True):
+            field = st.session_state[chapter_key]
+            heading = dict((field, heading) for heading, field in sections)[field]
+            display_section_heading(heading)
+            value = finding.get(field)
+            if field == "engagement":
+                display_engagement_dashboard(finding, key=f"{page_key}_engagement")
+            elif field == "momentum":
+                display_cultural_momentum(value)
+            elif field == "related_communities":
+                display_relevant_communities(finding)
+            elif not value:
+                st.caption("No research reported for this chapter.")
+            elif field == "key_figures":
+                display_key_figures(value)
+            elif field == "sources":
+                display_sources(value)
+            elif field == "audience":
+                display_audience_blocks(finding, key=f"{page_key}_audience")
+            else:
                 display_value(value)
 
-        display_key_figures(
-            finding.get("key_figures", [])
+
+def display_report(report, context="latest"):
+    """Display the findings home or the selected finding page."""
+
+    findings = report.get("findings") or []
+    # Separate report and placement identities keep library/latest menus independent.
+    identity = hashlib.sha256(
+        json.dumps(report, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
+    selection_key = f"finding_{context}_{identity}"
+    if selection_key not in st.session_state:
+        st.session_state[selection_key] = None
+    selected = st.session_state[selection_key]
+    if isinstance(selected, int) and 0 <= selected < len(findings):
+        st.button(
+            "← Findings",
+            key=f"{selection_key}_home",
+            on_click=select_chapter,
+            args=(selection_key, None),
         )
+        display_finding(findings[selected], page_key=f"{selection_key}_{selected}")
+        return
 
-        display_sources(
-            finding.get("sources", [])
-        )
-
-def display_report(report):
-    """Display a complete Cultural Intelligence Report."""
-
-    approach = report.get(
-        "research_approach", "Unclassified"
-    )
-
+    approach = report.get("research_approach", "Unclassified")
     research_date = report.get("research_date", "")
-
-    st.caption(
-        f"Research approach: {approach} | {research_date}"
-    )
+    if research_date:
+        try:
+            research_date = datetime.fromisoformat(
+                research_date.replace("Z", "+00:00")
+            ).strftime("%m-%d-%Y")
+        except (ValueError, TypeError, AttributeError):
+            research_date = "Date unavailable"
+    st.caption(f"Research approach: {approach} | {research_date}")
 
     if report.get("summary"):
-        st.markdown("### Research summary")
+        display_section_heading("Research summary", findings=True)
         st.write(report["summary"])
 
-    findings = report.get("findings", [])
-
-    st.markdown(f"### Findings ({len(findings)})")
-
-    for finding in findings:
-        with st.container(border=True):
-            display_finding(finding)
+    display_section_heading(f"Findings: {len(findings)}", findings=True)
+    if findings:
+        with st.container(key=f"findings_home_{context}_{identity}"):
+            for index, finding in enumerate(findings):
+                st.button(
+                    f"{index + 1:02d} · {finding.get('name', 'Unnamed finding')}",
+                    key=f"{selection_key}_open_{index}",
+                    use_container_width=True,
+                    on_click=select_chapter,
+                    args=(selection_key, index),
+                )
+                st.write(finding.get("description", ""))
+    else:
+        st.info("This report has no findings.")
 
     if report.get("overall_assessment"):
-        st.markdown("### Overall assessment")
-        st.write(report["overall_assessment"])
-
-    limitations = report.get("research_limitations", [])
-
-    if limitations:
+        display_section_heading("Overall assessment", findings=True)
+        display_value(report["overall_assessment"])
+    if report.get("research_limitations"):
         with st.expander("Research limitations"):
-            display_value(limitations)
+            display_value(report["research_limitations"])
+
+
+def select_chapter(selection_key, index):
+    st.session_state[selection_key] = index
 
 
 # --------------------------------------------------
@@ -296,9 +419,8 @@ with tab_research:
             st.session_state.scout_request
         )
 
-        display_report(
-            st.session_state.scout_results
-        )
+        with st.container(key="finding_reader_latest"):
+            display_report(st.session_state.scout_results)
 
 # --------------------------------------------------
 # TAB 2: RESEARCH LIBRARY
@@ -317,26 +439,25 @@ with tab_library:
         )
 
     else:
-        st.caption(
-            f"{len(reports)} saved research reports"
-        )
-
-        search_term = st.text_input(
-            "Search reports",
-            placeholder="Search research topics..."
-        )
-
         approaches = sorted({
             report["research_approach"]
             for report in reports
             if report["research_approach"]
         })
 
-        selected_approaches = st.multiselect(
-            "Research approach",
-            options=approaches,
-            default=approaches
-        )
+        search_column, approach_column = st.columns([3, 1.5], gap="small")
+        with search_column:
+            search_term = st.text_input(
+                "Search reports",
+                placeholder="Search research topics..."
+            )
+        with approach_column:
+            selected_approaches = st.multiselect(
+                "Research approach",
+                options=approaches,
+                default=[],
+                placeholder="All approaches"
+            )
 
         filtered = [
             report for report in reports
@@ -349,7 +470,7 @@ with tab_library:
                 ).lower()
             )
             and (
-                not approaches
+                not selected_approaches
                 or report["research_approach"]
                 in selected_approaches
             )
@@ -369,4 +490,5 @@ with tab_library:
                     saved_report["report_json"]
                 )
 
-                display_report(report)
+                with st.container(key=f"finding_reader_library_{saved_report['id']}"):
+                    display_report(report, context=f"library_{saved_report['id']}")
